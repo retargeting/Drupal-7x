@@ -1,0 +1,9 @@
+name = Retargeting Tracker
+description = Retargeting.Biz is a marketing automation tool that boosts the conversion rate and sales of your online store.
+core = 7.x
+package = Statistics
+configure = admin/config/system/retargetingtracker
+
+; Information that will be add by Drupal.org packaging script
+version = "7.x-1.0"
+core = "7.x"

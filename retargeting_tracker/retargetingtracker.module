@@ -1,0 +1,435 @@
+<?php 
+
+/**
+ * @file
+ * Drupal Module: Retargeting Tracker
+ *
+ * Adds the required JavaScript to all your Drupal pages to allow tracking by
+ * the Retargeting.Biz monitoring package.
+ *
+ * @author: Carol Pelu <https://www.retargeting.biz>
+ */
+
+/**
+ * Define default path exclusion list to remove tracking from admin pages.
+ */
+
+define('RETARGETINGTRACKER_PAGES', "admin\nadmin/*\nbatch\nnode/add*\nnode/*/*\nuser/*/*");
+
+require_once 'Retargeting_REST_API_Client.php';
+
+/**
+ * Implements hook_help().
+ */
+
+function retargetingtracker_help($path, $arg) {
+    if ($path !== 'admin/config/system/retargetingtracker') {
+        return false;
+    }
+    return t('<a href="@ra_url">Retargeting Tracker</a> is a marketing automation tool that boosts the conversion rate and sales of your online store.', array('@ra_url' => 'https://www.retargeting.biz'));
+    
+}
+
+/**
+ * Implements hook_permission().
+ */
+function retargetingtracker_permission() {
+    return array(
+        'administer retargeting tracker' => array(
+            'title' => t('Administer Retargeting Tracker'),
+            'description' => t('Perform maintenance tasks for Retargeting Tracker'),
+        ),
+    );
+}
+/**
+ * Implements hook_menu().
+ */
+ function retargetingtracker_menu() {
+     
+     $items['admin/config/system/retargetingtracker'] = array(
+         'title' => 'Retargeting Tracker',
+         'description' => 'Insert your secure API Keys to start tracking behaviour of your website traffic.',
+         'page callback' => 'drupal_get_form',
+         'page arguments' => array('retargetingtracker_admin_settings_form'),
+         'access arguments' => array('administer retargeting tracker'),
+         'type' => MENU_NORMAL_ITEM,
+         'file' => 'retargetingtracker.admin.inc',
+     );
+     
+     return $items;
+ }
+ 
+ /**
+  * Delete cached files and directory
+  */
+ function retargetingtracker_clear_js_cache() {
+    $path = 'public://retargetingtracker';
+    if (file_prepare_directory($path)) {
+        file_scan_directory($path, '/.*/', array('callback' => 'file_unmanaged_delete'));
+        drupal_rmdir($path);
+        
+        // Change query-strings on CSS/JS files to enforce reload for all users.
+        _drupal_flush_css_js();
+        
+        watchdog('retargetingtracker', 'Local cache has been purged.', array(), WATCHDOG_INFO);
+    }
+ }
+
+ function retargetingtracker_page_alter($page) {
+    global $user;
+    
+    // Retargeting JavaScript Tracking Script
+    $apiKey = variable_get('retargetingtracker_account', '');
+    
+    $raJs  = '
+    (function(){
+    ra_key = ' . drupal_json_encode($apiKey) . ';
+    ra_params = {
+        add_to_cart_button_id: \'add_to_cart_button_id\',
+        price_label_id: \'price_label_id\',
+    };
+    var ra = document.createElement("script"); ra.type ="text/javascript"; ra.async = true; ra.src = ("https:" ==
+    document.location.protocol ? "https://" : "http://") + "tracking.retargeting.biz/v3/rajs/" + ra_key + ".js";
+    var s = document.getElementsByTagName("script")[0]; s.parentNode.insertBefore(ra,s);})();
+    ';
+    
+    drupal_add_js($raJs, array('scope' => 'header', 'type' => 'inline', 'requires_jquery' => FALSE));
+    
+    // sendCategory
+    
+    if ( arg(0) == 'collection' ) {
+        $categoryDetails = taxonomy_term_load( arg(1) );
+        $categoryId = $categoryDetails->tid;
+        $categoryName = drupal_json_encode($categoryDetails->name);
+
+        $sendCategoryScript = '
+            var _ra = _ra || {};
+            
+            _ra.sendCategoryInfo = {
+                "id": ' . $categoryId . ',
+                "name": ' . $categoryName . ',
+                "parent": false,
+                "breadcrumb": []
+            };
+            
+            if (_ra.ready !== undefined) {
+                _ra.sendCategory(_ra.sendCategoryInfo);
+            }
+        ';
+        
+        drupal_add_js($sendCategoryScript, array('scope' => 'footer', 'type' => 'inline', 'required_jquery' => FALSE));
+    }
+    
+    // sendProduct, addToCart, clickImage
+    // Checks for product page
+    if ( arg(0) == 'node' && is_numeric(arg(1)) && !arg(2) ) {
+        $node = menu_get_object();
+        
+        if ($node) {
+            $nodeWrapper = entity_metadata_wrapper('node', $node);
+            if ( isset($nodeWrapper) ) {
+                $commerceProduct = $nodeWrapper->value();
+                if ( is_array($commerceProduct) ) {
+                    $commerceProduct = reset($commerceProduct);
+                }
+                if ( is_object($commerceProduct) ) {
+                    $raProduct = new stdClass();
+                    $productId = $node->field_product['und'][0]['product_id'];
+                    $product = commerce_product_load($productId);
+                    $raProduct->page_url = drupal_json_encode(url('node/' . $node->nid, array('absolute' => TRUE)));
+                    $raProduct->name = drupal_json_encode($node->title);
+                    $productImage = drupal_json_encode(file_create_url($product->field_images['und'][0]['uri']));
+                    $getProductPrice = commerce_product_calculate_sell_price($product);
+                    $productPrice = commerce_currency_format($getProductPrice['original']['amount'], $getProductPrice['currency_code'], $product);
+                    $loadSymbol = commerce_currency_load();
+                    $currency = $loadSymbol['symbol'];
+                    $price = preg_replace('/[' . $currency . '\s]/', '', $productPrice); 
+                    
+                    if ( isset($getProductPrice['data']['components'][1]['price']['amount']) ) {
+                        $getPromoPrice = abs($getProductPrice['data']['components'][1]['price']['amount']) / 100;
+                    } else {
+                        $getPromoPrice = 0;
+                    }
+
+                    $promoPrice = $price - $getPromoPrice;
+
+                    if ($price == $promoPrice) {
+                        $price = preg_replace('/[' . $currency . '\s]/', '', $productPrice);
+                        $promoPrice = 0;
+                    }
+
+                    $stock = 0;
+                    if ($product->status == 1) {
+                        $stock = 1;
+                    }
+                    
+                    if (module_exists('taxonomy')) {
+                        foreach ($node->field_category['und'] as $delta => $value) {
+                            $term = taxonomy_term_load($value['tid']);
+                        }
+                        $categoryId = $term->tid;
+                        $categoryName = drupal_json_encode($term->name);
+                    } else {
+                        $categoryId = 99999;
+                        $categoryName = 'Default';
+                    }
+                }
+            }
+        }
+        
+        $sendProductScript = '
+            var _ra = _ra || {};
+              
+            _ra.sendProductInfo = {
+                "id": ' . $productId . ',
+                "name": ' . $raProduct->name . ',
+                "url": ' . $raProduct->page_url . ',
+                "img": ' . $productImage . ',
+                "price": ' . $price . ',
+                "promo": ' . $promoPrice . ',
+                "brand": false,
+                "category": [{
+                    "id": ' . $categoryId . ',
+                    "name": ' . $categoryName . ',
+                    "parent": false
+                }],
+                "inventory": {
+                    "variations": false,
+                    "stock": ' . $stock . '
+                }
+            };
+            
+            if (_ra.ready !== undefined) {
+                _ra.sendProduct(_ra.sendProductInfo);
+            }
+        ';
+
+        drupal_add_js($sendProductScript, array('scope' => 'footer', 'type' => 'inline', 'required_jquery' => FALSE));
+        
+        // addToCart
+        $addToCartQuerySelector = variable_get('retargetingtracker_cart_selector', '');
+        
+        if ($addToCartQuerySelector == '' || $addToCartQuerySelector == 'undefined') {
+            $addToCartButton = "'#edit-submit'";
+        } else {
+            $addToCartButton = drupal_json_encode(variable_get('retargetingtracker_cart_selector', ''));
+        }
+        
+        $addToCartScript = '
+            var raCartButton = document.querySelector(' . $addToCartButton . ');
+            
+            if (raCartButton !== null) {
+                raCartButton.addEventListener("click", function() {
+                    _ra.addToCart(' . $productId . ', ' . $stock . ', false, function() {
+                        console.log("_ra.addToCart has been executed");
+                    });
+                });
+            }
+        ';
+        
+      drupal_add_js($addToCartScript, array('scope' => 'footer', 'type' => 'inline', 'required_jquery' => FALSE));
+      
+      // clickImage
+      $clickImageQuerySelector = variable_get('retargetingtracker_image_selector', '');
+      
+      if ($clickImageQuerySelector == '' || $clickImageQuerySelector == 'undefined') {
+          $addToCartButton = "'.cloud-zoom-container'";
+      } else {
+          $addToCartButton = drupal_json_encode(variable_get('retargetingtracker_image_selector', ''));
+      }
+      
+      $clickImageScript = '
+          var raImage = document.querySelector(' . $addToCartButton . ');
+          
+          if (raImage !== null) {
+              raImage.addEventListener("click", function() {
+                  _ra.clickImage(' . $productId . ', function() {
+                      console.log("_ra.clickImage has been executed");
+                  });
+              });
+          }
+      ';
+      
+      drupal_add_js($clickImageScript, array('scope' => 'footer', 'type' => 'inline', 'required_jquery' => FALSE));
+    }
+    
+    // setCartUrl
+    $cartUrl = variable_get('retargetingtracker_cart_url', '');
+    
+    if ($cartUrl == '' || $cartUrl == 'undefined') {
+        $cartUrl = drupal_json_encode($GLOBALS['base_url'] . '/cart');
+    }
+    
+    $setCartUrlScript = '
+        var _ra = _ra || {};
+        
+        _ra.setCartUrlInfo = {
+            "url": ' . $cartUrl . '
+        };
+        
+        if (_ra.ready !== undefined) {
+            _ra.setCartUrl(_ra.setCartUrlInfo.url);
+        }
+    ';
+    
+    drupal_add_js($setCartUrlScript, array('scope' => 'footer', 'type' => 'inline', 'required_jquery' => FALSE));
+
+    // checkoutIds
+    $checkoutIdsPage = variable_get('retargetingtracker_checkout_page', '');
+    
+    if ($checkoutIdsPage == '' || $checkoutIdsPage == 'undefined') {
+        $checkoutIdsPage = 'cart';
+    }
+
+    if (arg(0) == $checkoutIdsPage) {
+        $initCart = commerce_cart_order_load($user->uid);
+        $cartProducts = $initCart->commerce_line_items['und'];
+        $raCartProducts = array();
+        foreach ($cartProducts as $products) {
+            $raCartProducts[] = $products['line_item_id'];
+        }
+        
+        $checkoutIdsScript = '
+            var _ra = _ra || {};
+              
+            _ra.checkoutIdsInfo = ' . drupal_json_encode($raCartProducts) . ';
+            
+            if (_ra.ready !== undefined) {
+                _ra.checkoutIds(_ra.checkoutIdsInfo);
+            }
+        ';
+        
+        drupal_add_js($checkoutIdsScript, array('scope' => 'footer', 'type' => 'inline', 'required_jquery' => FALSE));
+    }
+    
+    // saveOrder
+    $saveOrderPage = variable_get('retargetingtracker_success_page', '');
+    
+    if ($saveOrderPage == '' || $saveOrderPage == 'undefined') {
+        $saveOrderPage = 'complete';
+    }
+    
+    if ( arg(2) == $saveOrderPage) {
+        if ( isset($_SESSION['retargeting_tagging']['completed_order_id']) ) {
+            $orderId = $_SESSION['retargeting_tagging']['completed_order_id'];
+            $order = commerce_order_load($orderId);
+            
+            if ($order) {
+                global $user;
+                
+                $orderStatusBlacklist = array(
+                    'canceled',
+                    'cart',
+                    'checkout_checkout',
+                    'checkout_review',
+                    'checkout_payment',
+                );
+                
+                $isValidOrderStatus = !in_array($order->status, $orderStatusBlacklist);
+                
+                if ($user && $order->uid === $user->uid && $isValidOrderStatus) {
+                    $tax = 0;
+                    $shippingCost = 0;
+                    $raOrder = new stdClass();
+                    $raOrder->order_number = $order->order_number;
+                    $raOrder->user = $user;
+                    $raOrder->mail = drupal_json_encode($user->mail);
+                    $raOrder->purchased_items = array();
+                    $orderWrapper = entity_metadata_wrapper('commerce_order', $order);
+                    $raOrder->firstname = drupal_json_encode($orderWrapper->commerce_customer_billing->commerce_customer_address->first_name->value());
+                    $raOrder->lastname = drupal_json_encode($orderWrapper->commerce_customer_billing->commerce_customer_address->last_name->value());
+                    $raOrder->address = drupal_json_encode($orderWrapper->commerce_customer_billing->commerce_customer_address->thoroughfare->value());
+                    $raOrder->city = drupal_json_encode($orderWrapper->commerce_customer_billing->commerce_customer_address->locality->value());
+                    $raOrder->state = drupal_json_encode($orderWrapper->commerce_customer_billing->commerce_customer_address->country->value());
+                    $raOrder->total = $orderWrapper->commerce_order_total->amount->value() / 100;
+                    $items = $orderWrapper->commerce_line_items;
+                    
+                    foreach ($items as $item) {
+                        if ($item->type->value() === 'product') {
+                            $commerceUnitPrice = $item->commerce_unit_price->value();
+                            $entity = _retargetingtracker_get_line_item_context_entity($item->value());
+                            if ($entity) {
+                                $raOrder->purchased_items[] = array(
+                                    "id" => $entity->nid,
+                                    "quantity" => $item->quantity->value(),
+                                    "price" => substr(commerce_currency_format(
+                                        $commerceUnitPrice['amount'],
+                                        $commerceUnitPrice['currency_code']
+                                    ), 1),
+                                    "variation_code" => ""
+                                );
+                                $raOrderProducts = $raOrder->purchased_items;
+                            }
+                        }
+                    }
+                    
+                    $saveOrderScript = '
+                        var _ra = _ra || {};
+                        
+                        _ra.saveOrderInfo = {
+                            "order_no": ' . $raOrder->order_number . ',
+                            "lastname": ' . $raOrder->lastname . ',
+                            "firstname": ' . $raOrder->firstname . ',
+                            "email": ' . $raOrder->mail . ',
+                            "state": ' . $raOrder->state . ',
+                            "city": ' . $raOrder->city . ',
+                            "address": ' . $raOrder->address . ',
+                            "total": ' . $raOrder->total . '
+                        };
+                        
+                        _ra.saveOrderProducts = '. drupal_json_encode($raOrderProducts) . ';
+                        
+                        if (_ra.ready !== undefined) {
+                            _ra.saveOrder(_ra.saveOrderInfo, _ra.saveOrderProducts);
+                        }
+                    ';
+                    
+                    drupal_add_js($saveOrderScript, array('scope' => 'footer', 'type' => 'inline', 'required_jquery' => FALSE));
+                    
+                    // saveOrder API
+                    
+                    $restApiKey = variable_get('retargetingtracker_rest_api', '');
+                    
+                    if ($restApiKey && $restApiKey != '') {
+                        $orderInfo = array (
+                            'order_no'  => $raOrder->order_number,
+                            'lastname'  => $raOrder->lastname,
+                            'firstname' => $raOrder->firstname,
+                            'email'     => $raOrder->mail,
+                            'state'     => $raOrder->state,
+                            'city'      => $raOrder->city,
+                            'address'   => $raOrder->address,
+                            'total'     => $raOrder->total
+                        );
+                    }
+                    
+                    $orderClient = new Retargeting_REST_API_Client($restApiKey);
+                    $orderClient->setResponseFormat("json");
+                    $orderClient->setDecoding(false);
+                    $response = $orderClient->order->save($orderInfo, $raOrderProducts);
+                }
+            }
+            
+            unset($_SESSION['retargeting_tagging']['completed_order_id']);
+        }
+    }
+ }
+ 
+function retargetingtracker_commerce_checkout_complete($order) {
+    if (is_object($order)) {
+     global $user;
+
+     if ($user && $user->uid === $order->uid) {
+       $_SESSION['retargeting_tagging']['completed_order_id'] = $order->order_id;
+     }
+    }
+}
+ 
+function _retargetingtracker_get_line_item_context_entity($line_item) {
+    if ( isset($line_item->data['context']['entity']) ) {
+    $entity_data = $line_item->data['context']['entity'];
+    return entity_load_single($entity_data['entity_type'], $entity_data['entity_id']);
+    }
+    
+    return FALSE;
+}

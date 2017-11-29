@@ -1,0 +1,89 @@
+<?php
+
+/**
+ * @file
+ * Installation file for Retargeting Tracker module.
+ */
+
+/**
+ * Implements hook_uninstall().
+ */
+function retargetingtracker_uninstall() {
+    variable_del('retargetingtracker_account');
+    variable_del('retargetingtracker_rest_api');
+    variable_del('retargetingtracker_cart_url');
+    variable_del('retargetingtracker_checkout_page');
+    variable_del('retargetingtracker_cart_selector');
+    variable_del('retargetingtracker_image_selector');
+    variable_del('retargetingtracker_success_page');
+    variable_del('retargetingtracker_codesnippet_create');
+    variable_del('retargetingtracker_codesnippet_before');
+    variable_del('retargetingtracker_codesnippet_after');
+    variable_del('retargetingtracking_pages');
+}
+
+/**
+ * Implements hook_disable().
+ *
+ * Remove cache directory if module is disabled (or uninstalled).
+ */
+function retargetingtracker_disable() {
+    retargetingtracker_clear_js_cache();
+}
+
+/**
+ * Implements hook_requirements().
+ */
+
+function retargetingtracker_requirements($phase) {
+    $requirements = array();
+    $t = get_t();
+    
+    if ($phase == 'runtime') {
+        // Raise warning if Retargeting user account has not been set yet.
+        if ( variable_get('retargetingtracker_account', 'API Key Here') ) {
+            $requirements['retargetingtracker_account'] = array(
+                'title' => $t('Retargeting Tracker module'),
+                'description' => $t('Retargeting Tracker module has not been configured yet.'),
+                'severity' => REQUIREMENT_WARNING,
+                'value' => $t('Not configured'),
+            );
+        }
+    }
+    
+    return $requirements;
+}
+
+function retargetingtracker_update_6001() {
+    variable_set('retargetingtracker_visibility', 0);
+    
+    // Remove tracking from all administrative pages.
+    $pages = array(
+        'admin*',
+        'user*',
+        'node/add*',
+        'node/*/*',
+    );
+    variable_set('retargetingtracking_pages', implode("\n", $pages));
+    
+    return t('Added page tracking to every page except the listed pages: @pages.', array('@pages' => implode(', ', $pages)));
+}
+
+/**
+ * #262468: Clear menu cache to solve stale menu data in 5.x-1.5 and 6.x-1.1
+ */
+function retargetingtracker_update_6003() {
+    menu_rebuild();
+    return t('Menu has been rebuild.');
+}
+
+/**
+ * Upgrade custom JavaScript settings.
+ */
+
+function retargetingtracker_update_6006() {
+    variable_set('retargetingtracker_codesnippet_before', variable_get('retargetingtracker_codesnippet', ''));
+    variable_del('retargetingtracker_codesnippet');
+    
+    return t('Upgraded custom JavaScript codesnippet setting.');
+}
