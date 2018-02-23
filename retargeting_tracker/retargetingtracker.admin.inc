@@ -20,7 +20,7 @@ function retargetingtracker_admin_settings_form($form_state) {
         '#type' => 'textfield',
         '#default_value' => variable_get('retargetingtracker_account', ''),
         '#required' => TRUE,
-        '#description' => t('You can find your secure <b>Tracking API Key</b> in your <a href="https://retargeting.biz/admin/module/settings/docs-and-api" target="_blank" rel="noopener noreferrer">Retargeting.Biz</a> account.')
+        '#description' => t('You can find your secure <b>Tracking API Key</b> in your <a href="https://retargeting.biz/" target="_blank" rel="noopener noreferrer">Retargeting.Biz</a> account.')
     );
     
     $form['account']['retargetingtracker_rest_api'] = array(
@@ -28,7 +28,7 @@ function retargetingtracker_admin_settings_form($form_state) {
         '#type' => 'textfield',
         '#default_value' => variable_get('retargetingtracker_rest_api', ''),
         '#required' => TRUE,
-        '#description' => t('You can find your secure <b>REST API Key</b> in your <a href="https://retargeting.biz/admin/module/settings/docs-and-api" target="_blank" rel="noopener noreferrer">Retargeting.Biz</a> account.')
+        '#description' => t('You can find your secure <b>REST API Key</b> in your <a href="https://retargeting.biz/" target="_blank" rel="noopener noreferrer">Retargeting.Biz</a> account.')
     );
     
     $form['account']['retargetingtracker_cart_url'] = array(

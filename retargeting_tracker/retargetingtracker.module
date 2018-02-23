@@ -132,7 +132,7 @@ function retargetingtracker_permission() {
                 if ( is_array($commerceProduct) ) {
                     $commerceProduct = reset($commerceProduct);
                 }
-                if ( is_object($commerceProduct) ) {
+                if ( is_object($commerceProduct) && !empty($node->field_product) ) {
                     $raProduct = new stdClass();
                     $productId = $node->field_product['und'][0]['product_id'];
                     $product = commerce_product_load($productId);
@@ -140,22 +140,11 @@ function retargetingtracker_permission() {
                     $raProduct->name = drupal_json_encode($node->title);
                     $productImage = drupal_json_encode(file_create_url($product->field_images['und'][0]['uri']));
                     $getProductPrice = commerce_product_calculate_sell_price($product);
-                    $productPrice = commerce_currency_format($getProductPrice['original']['amount'], $getProductPrice['currency_code'], $product);
-                    $loadSymbol = commerce_currency_load();
-                    $currency = $loadSymbol['symbol'];
-                    $price = preg_replace('/[' . $currency . '\s]/', '', $productPrice); 
-                    
-                    if ( isset($getProductPrice['data']['components'][1]['price']['amount']) ) {
-                        $getPromoPrice = abs($getProductPrice['data']['components'][1]['price']['amount']) / 100;
-                    } else {
-                        $getPromoPrice = 0;
-                    }
+                    $price = commerce_currency_amount_to_decimal($getProductPrice['amount'], $getProductPrice['currency_code']);
+                    $promoPrice = 0;
 
-                    $promoPrice = $price - $getPromoPrice;
-
-                    if ($price == $promoPrice) {
-                        $price = preg_replace('/[' . $currency . '\s]/', '', $productPrice);
-                        $promoPrice = 0;
+                    if ($getProductPrice['amount'] != $getProductPrice['amount']) {
+                      $promoPrice = commerce_currency_amount_to_decimal($getProductPrice['original']['amount'], $getProductPrice['currency_code']);
                     }
 
                     $stock = 0;
@@ -173,6 +162,24 @@ function retargetingtracker_permission() {
                         $categoryId = 99999;
                         $categoryName = 'Default';
                     }
+
+                    if (!empty($node->field_brand)) {
+                        $node->field_brand[LANGUAGE_NONE][0];
+
+                        if (empty($node->field_brand[LANGUAGE_NONE][0]['taxonomy_term'])) {
+                            $term = taxonomy_term_load($node->field_brand[LANGUAGE_NONE][0]['tid']);
+                        } else {
+                            $term = $node->field_brand[LANGUAGE_NONE][0]['taxonomy_term'];
+                        }
+                        $brand = [
+                          'id' => $term->tid,
+                          'name' => $term->name,
+                        ];
+                      } else {
+                        $brand = false;
+                      }
+
+                      $brand = drupal_json_encode($brand);
                 }
             }
         }
@@ -187,7 +194,7 @@ function retargetingtracker_permission() {
                 "img": ' . $productImage . ',
                 "price": ' . $price . ',
                 "promo": ' . $promoPrice . ',
-                "brand": false,
+                "brand": ' . $brand . ',
                 "category": [{
                     "id": ' . $categoryId . ',
                     "name": ' . $categoryName . ',
@@ -257,14 +264,14 @@ function retargetingtracker_permission() {
     $cartUrl = variable_get('retargetingtracker_cart_url', '');
     
     if ($cartUrl == '' || $cartUrl == 'undefined') {
-        $cartUrl = drupal_json_encode($GLOBALS['base_url'] . '/cart');
+        $cartUrl = $GLOBALS['base_url'] . '/cart';
     }
     
     $setCartUrlScript = '
         var _ra = _ra || {};
         
         _ra.setCartUrlInfo = {
-            "url": ' . $cartUrl . '
+            "url": ' . drupal_json_encode($cartUrl) . '
         };
         
         if (_ra.ready !== undefined) {
@@ -401,12 +408,12 @@ function retargetingtracker_permission() {
                             'address'   => $raOrder->address,
                             'total'     => $raOrder->total
                         );
+
+                        $orderClient = new Retargeting_REST_API_Client($restApiKey);
+                        $orderClient->setResponseFormat("json");
+                        $orderClient->setDecoding(false);
+                        $response = $orderClient->order->save($orderInfo, $raOrderProducts);
                     }
-                    
-                    $orderClient = new Retargeting_REST_API_Client($restApiKey);
-                    $orderClient->setResponseFormat("json");
-                    $orderClient->setDecoding(false);
-                    $response = $orderClient->order->save($orderInfo, $raOrderProducts);
                 }
             }
             
