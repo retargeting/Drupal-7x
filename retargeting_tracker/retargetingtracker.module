@@ -285,7 +285,7 @@ function retargetingtracker_permission() {
     $checkoutIdsPage = variable_get('retargetingtracker_checkout_page', '');
     
     if ($checkoutIdsPage == '' || $checkoutIdsPage == 'undefined') {
-        $checkoutIdsPage = 'cart';
+        $checkoutIdsPage = 'checkout';
     }
 
     if (arg(0) == $checkoutIdsPage && arg(2) !== 'complete') {
