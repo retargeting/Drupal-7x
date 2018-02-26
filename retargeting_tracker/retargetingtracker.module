@@ -288,7 +288,7 @@ function retargetingtracker_permission() {
         $checkoutIdsPage = 'cart';
     }
 
-    if (arg(0) == $checkoutIdsPage) {
+    if (arg(0) == $checkoutIdsPage && arg(2) !== 'complete') {
         $initCart = commerce_cart_order_load($user->uid);
         $cartProducts = $initCart->commerce_line_items['und'];
         $raCartProducts = array();
