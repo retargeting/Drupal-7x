@@ -134,8 +134,9 @@ function retargetingtracker_permission() {
                 }
                 if ( is_object($commerceProduct) && !empty($node->field_product) ) {
                     $raProduct = new stdClass();
-                    $productId = $node->field_product['und'][0]['product_id'];
-                    $product = commerce_product_load($productId);
+                    $getProductId = $node->field_product['und'][0]['product_id'];
+                    $product = commerce_product_load($getProductId);
+                    $productId = drupal_json_encode($product->sku);
                     $raProduct->page_url = drupal_json_encode(url('node/' . $node->nid, array('absolute' => TRUE)));
                     $raProduct->name = drupal_json_encode($node->title);
                     $productImage = drupal_json_encode(file_create_url($product->field_images['und'][0]['uri']));
@@ -290,10 +291,11 @@ function retargetingtracker_permission() {
 
     if (arg(0) == $checkoutIdsPage && arg(2) !== 'complete') {
         $initCart = commerce_cart_order_load($user->uid);
-        $cartProducts = $initCart->commerce_line_items['und'];
+        $wrapper = entity_metadata_wrapper('commerce_order', $initCart);
+
         $raCartProducts = array();
-        foreach ($cartProducts as $products) {
-            $raCartProducts[] = $products['line_item_id'];
+        foreach ($wrapper->commerce_line_items as $delta => $lineItemWrapper) {
+            $raCartProducts[] = $lineItemWrapper->commerce_product->value()->sku;
         }
         
         $checkoutIdsScript = '
@@ -365,7 +367,7 @@ function retargetingtracker_permission() {
                             $entity = _retargetingtracker_get_line_item_context_entity($item->value());
                             if ($entity) {
                                 $raOrder->purchased_items[] = array(
-                                    "id" => $entity->nid,
+                                    "id" => $item->line_item_label->value(),
                                     "quantity" => $item->quantity->value(),
                                     "price" => substr(commerce_currency_format(
                                         $commerceUnitPrice['amount'],
@@ -425,25 +427,26 @@ function retargetingtracker_permission() {
                 }
             }
             
-            unset($_SESSION['retargeting_tagging']['completed_order_id']);
+            // unset($_SESSION['retargeting_tagging']['completed_order_id']);
         }
     }
  }
  
 function retargetingtracker_commerce_checkout_complete($order) {
     if (is_object($order)) {
-     global $user;
+        global $user;
 
-     if ($user) {
-       $_SESSION['retargeting_tagging']['completed_order_id'] = $order->order_id;
-     }
+        if ($user) {
+        $_SESSION['retargeting_tagging']['completed_order_id'] = $order->order_id;
+        }
     }
 }
  
 function _retargetingtracker_get_line_item_context_entity($line_item) {
     if ( isset($line_item->data['context']['entity']) ) {
-    $entity_data = $line_item->data['context']['entity'];
-    return entity_load_single($entity_data['entity_type'], $entity_data['entity_id']);
+        $entity_data = $line_item->data['context']['entity'];
+
+        return entity_load_single($entity_data['entity_type'], $entity_data['entity_id']);
     }
     
     return FALSE;
