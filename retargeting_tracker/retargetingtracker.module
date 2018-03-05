@@ -96,7 +96,7 @@ function retargetingtracker_permission() {
     drupal_add_js($raJs, array('scope' => 'header', 'type' => 'inline', 'requires_jquery' => FALSE));
     
     // sendCategory
-    
+
     if ( arg(0) == 'collection' ) {
         $categoryDetails = taxonomy_term_load( arg(1) );
         $categoryId = $categoryDetails->tid;
@@ -212,7 +212,7 @@ function retargetingtracker_permission() {
         ';
 
         drupal_add_js($sendProductScript, array('scope' => 'footer', 'type' => 'inline', 'required_jquery' => FALSE));
-        
+
         // addToCart
         $addToCartQuerySelector = variable_get('retargetingtracker_cart_selector', '');
         
@@ -317,13 +317,14 @@ function retargetingtracker_permission() {
     }
     
     if ( arg(2) == $saveOrderPage) {
+
         if ( isset($_SESSION['retargeting_tagging']['completed_order_id']) ) {
             $orderId = $_SESSION['retargeting_tagging']['completed_order_id'];
             $order = commerce_order_load($orderId);
             
             if ($order) {
                 global $user;
-                
+
                 $orderStatusBlacklist = array(
                     'canceled',
                     'cart',
@@ -334,13 +335,20 @@ function retargetingtracker_permission() {
                 
                 $isValidOrderStatus = !in_array($order->status, $orderStatusBlacklist);
                 
-                if ($user && $order->uid === $user->uid && $isValidOrderStatus) {
+                if ($user && $isValidOrderStatus) {
                     $tax = 0;
                     $shippingCost = 0;
                     $raOrder = new stdClass();
                     $raOrder->order_number = $order->order_number;
                     $raOrder->user = $user;
-                    $raOrder->mail = drupal_json_encode($user->mail);
+                    
+                    if (in_array('anonymous user', $raOrder->user->roles)) {
+                        $sqlGetGuestMail = db_query("SELECT mail from {commerce_order} WHERE order_id = :order_id", array(':order_id' => $raOrder->order_number));
+                        $raOrder->mail = drupal_json_encode($sqlGetGuestMail->fetchField());
+                    } else {
+                        $raOrder->mail = drupal_json_encode($raOrder->user->mail);
+                    }
+
                     $raOrder->purchased_items = array();
                     $orderWrapper = entity_metadata_wrapper('commerce_order', $order);
                     $raOrder->firstname = drupal_json_encode($orderWrapper->commerce_customer_billing->commerce_customer_address->first_name->value());
@@ -426,7 +434,7 @@ function retargetingtracker_commerce_checkout_complete($order) {
     if (is_object($order)) {
      global $user;
 
-     if ($user && $user->uid === $order->uid) {
+     if ($user) {
        $_SESSION['retargeting_tagging']['completed_order_id'] = $order->order_id;
      }
     }
