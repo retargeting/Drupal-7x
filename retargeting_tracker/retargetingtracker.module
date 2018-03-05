@@ -427,7 +427,7 @@ function retargetingtracker_permission() {
                 }
             }
             
-            // unset($_SESSION['retargeting_tagging']['completed_order_id']);
+            unset($_SESSION['retargeting_tagging']['completed_order_id']);
         }
     }
  }
