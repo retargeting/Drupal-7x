@@ -295,7 +295,9 @@ function retargetingtracker_permission() {
 
         $raCartProducts = array();
         foreach ($wrapper->commerce_line_items as $delta => $lineItemWrapper) {
-            $raCartProducts[] = $lineItemWrapper->commerce_product->value()->sku;
+            if ($lineItemWrapper->type->value() == 'product') {
+                $raCartProducts[] = $lineItemWrapper->commerce_product->value()->sku;
+            }   
         }
         
         $checkoutIdsScript = '
